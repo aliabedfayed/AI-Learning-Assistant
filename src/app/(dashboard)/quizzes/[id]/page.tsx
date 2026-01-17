@@ -1,0 +1,246 @@
+"use client"
+import Button from '@/components/common/Button'
+import PageHeader from '@/components/common/PageHeader'
+import Spinner from '@/components/common/Spinner'
+import { Quiz } from '@/interfaces/ai/generateQuiz'
+import { getQuizById, submitQuiz } from '@/services/quizService'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { useState } from 'react'
+import toast from 'react-hot-toast'
+
+export default function QuizTake() {
+    const { id } = useParams<{ id: string }>()
+    const router = useRouter()
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+    const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({})
+
+    const { data, isLoading } = useQuery<Quiz>({
+        queryKey: ['quiz', id],
+        queryFn: async () => {
+            const res = await getQuizById(id)
+            return res.data
+        },
+        enabled: !!id
+    })
+
+    const submitMutation = useMutation({
+        mutationFn: (answers: { questionIndex: number, selectedAnswer: string }[]) =>
+            submitQuiz(id, answers),
+        onSuccess: () => {
+            toast.success('Quiz submitted successfully!')
+            router.push(`/quizzes/${id}/results`)
+        },
+        onError: (err) => toast.error(err?.message || 'Failed to submit quiz.')
+    })
+
+    const handleOptionChange = (questionId: string, optionIndex: number) => {
+        setSelectedAnswers(prev => ({ ...prev, [questionId]: optionIndex }))
+    }
+
+    const handleNextQuestion = () => {
+        if (data && currentQuestionIndex < data.questions.length - 1) {
+            setCurrentQuestionIndex(prev => prev + 1)
+        }
+    }
+
+    const handlePreviousQuestion = () => {
+        if (currentQuestionIndex > 0) setCurrentQuestionIndex(prev => prev - 1)
+    }
+
+    const handleSubmitQuiz = () => {
+        if (!data) return;
+
+        const unanswered = data.questions.filter(q => !(q._id in selectedAnswers))
+        if (unanswered.length > 0) {
+            toast.error(`Please answer all questions before submitting.`)
+            return
+        }
+
+        const formattedAnswers = data.questions.map((q, index) => {
+            const optionIndex = selectedAnswers[q._id]
+
+            return {
+                questionIndex: index,
+                selectedAnswer: q.options[optionIndex]
+            }
+        })
+
+
+        submitMutation.mutate(formattedAnswers)
+    }
+
+
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <Spinner />
+            </div>
+        )
+    }
+
+    if (!data || data.questions.length === 0) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="text-center">
+                    <p className="text-slate-600 text-lg">Quiz not found or has no questions.</p>
+                </div>
+            </div>
+        )
+    }
+
+    const currentQuestion = data.questions[currentQuestionIndex]
+    const answeredCount = Object.keys(selectedAnswers).length
+
+    return (
+        <>
+            <div className="max-w-4xl mx-auto">
+                <PageHeader title={data.title || 'Take Quiz'} />
+
+                <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-slate-700">
+                            Question {currentQuestionIndex + 1} of {data.questions.length}
+                        </span>
+                        <span className="text-sm font-medium text-slate-500">
+                            {answeredCount} answered
+                        </span>
+                    </div>
+                    <div className="relative h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                            className="absolute inset-y-0 left-0 bg-linear-to-r from-emerald-500 to-teal-500 rounded-full transition-all duration-500 ease-out"
+                            style={{ width: `${((currentQuestionIndex + 1) / data.questions.length) * 100}%` }}
+                        />
+                    </div>
+                </div>
+
+                <div className="bg-white/80 backdrop-blur-xl border-2 border-slate-200 rounded-2xl shadow-xl shadow-slate-200/50 p-6 mb-8">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl mb-6">
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                        <span className="text-sm font-semibold text-emerald-700">
+                            Question {currentQuestionIndex + 1}
+                        </span>
+                    </div>
+
+                    <h3 className="text-lg font-semibold text-slate-900 mb-6 leading-relaxed">
+                        {currentQuestion.question}
+                    </h3>
+
+                    <div className="space-y-3">
+                        {currentQuestion.options.map((option, index) => {
+                            const isSelected = selectedAnswers[currentQuestion._id] === index
+                            return (
+                                <label
+                                    key={index}
+                                    className={`group relative flex items-center p-3 border-2 rounded-xl cursor-pointer transition-all duration-200 ${isSelected
+                                        ? 'border-emerald-500 bg-emerald-50 shadow-lg shadow-emerald-500/10'
+                                        : 'border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-white hover:shadow-md'
+                                        }`}
+                                >
+                                    <input
+                                        type="radio"
+                                        name={`question-${currentQuestion._id}`}
+                                        value={index}
+                                        checked={isSelected}
+                                        onChange={() => handleOptionChange(currentQuestion._id, index)}
+                                        className="sr-only"
+                                    />
+
+                                    <div className={`shrink-0 w-5 h-5 rounded-full border-2 transition-all duration-200 ${isSelected
+                                        ? 'border-emerald-500 bg-emerald-500'
+                                        : 'border-slate-300 bg-white group-hover:border-emerald-400'
+                                        }`}>
+                                        {isSelected && (
+                                            <div className="w-full h-full flex items-center justify-center">
+                                                <div className="w-2 h-2 bg-white rounded-full" />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <span className={`ml-4 text-sm font-medium transition-colors duration-200
+                                        ${isSelected ? 'text-emerald-900' : 'text-slate-700 group-hover:text-slate-900'}`}>
+                                        {option}
+                                    </span>
+
+                                    {isSelected && (
+                                        <CheckCircle2
+                                            className="ml-auto w-5 h-5 text-emerald-500"
+                                            strokeWidth={2.5}
+                                        />
+                                    )}
+                                </label>
+                            )
+                        })}
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4">
+                    <Button
+                        onClick={handlePreviousQuestion}
+                        disabled={currentQuestionIndex === 0 || submitMutation.isPending}
+                        variant='secondary'
+                    >
+                        <ChevronLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform duration-200" strokeWidth={2.5} />
+                        Previous
+                    </Button>
+
+                    {currentQuestionIndex === data.questions.length - 1 ? (
+                        <button
+                            onClick={handleSubmitQuiz}
+                            disabled={submitMutation.isPending}
+                            className="group relative px-8 h-12 bg-linear-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-semibold text-sm rounded-xl transition-all duration-200 shadow-lg shadow-emerald-500/25 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 overflow-hidden"
+                        >
+                            <span className="relative z-10 flex items-center justify-center gap-2">
+                                {submitMutation.isPending ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        Submitting...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle2 className="w-4 h-4" strokeWidth={2.5} />
+                                        Submit Quiz
+                                    </>
+                                )}
+                            </span>
+                            <div className="absolute inset-0 bg-linear-to-r from-white/0 via-white/20 to-white/0 -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+                        </button>
+                    ) : (
+                        <Button
+                            onClick={handleNextQuestion}
+                            disabled={submitMutation.isPending}
+                        >
+                            Next
+                            <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-200" strokeWidth={2.5} />
+                        </Button>
+                    )}
+                </div>
+
+                <div className="mt-0 flex items-center justify-center gap-2 flex-wrap">
+                    {data.questions.map((_, index) => {
+                        const isAnsweredQuestion = selectedAnswers.hasOwnProperty(data.questions[index]._id)
+                        const isCurrent = index === currentQuestionIndex
+
+                        return (
+                            <button
+                                key={index}
+                                onClick={() => setCurrentQuestionIndex(index)}
+                                disabled={submitMutation.isPending}
+                                className={`w-8 h-8 rounded-lg font-semibold text-xs transition-all duration-200 
+                                    ${isCurrent
+                                        ? 'bg-linear-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/25 scale-110'
+                                        : isAnsweredQuestion
+                                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                            >
+                                {index + 1}
+                            </button>
+                        )
+                    })}
+                </div>
+            </div>
+        </>
+    )
+}
